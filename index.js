@@ -77,20 +77,24 @@ async function handleEvent(event) {
   // --- โหมดสุ่มคำคมฮีลใจด้วย Gemini (ทำงานได้ตลอดเวลา โดยไม่ต้องสนใจสถานะ) ---
   if (userText === "คำคมฮีลใจ") {
     try {
+      // ปรับปรุงการเรียกเพื่อความเร็วสูงสุด: จำกัดความยาว และกระชับคำสั่ง
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: 'จงแต่งคำคมฮีลใจ ให้พลังบวก 1 ข้อความ ความยาวประมาณ 2-3 ประโยค เน้นความสดใส ร่าเริง อบอุ่น และใส่อีโมจิน่ารักๆ แบบจัดเต็ม',
+        contents: 'แต่งคำคมฮีลใจสั้นๆ ให้พลังบวก 2-3 ประโยค สดใส อบอุ่น ใส่อีโมจิเยอะๆ',
+        config: {
+          maxOutputTokens: 120 // บังคับให้บอทคิดสั้นและตอบไวขึ้น
+        }
       });
 
       const quote = response.text ? response.text.trim() : "เหนื่อยก็พักนะ พี่หมีเป็นกำลังใจให้เสมอครับ 🔋";
 
-      return client.replyMessage({
+      return await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: quote }]
       });
     } catch (error) {
       console.error('Gemini API Error (คำคม):', error);
-      return client.replyMessage({
+      return await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: 'พี่หมีขอเวลาคิดคำคมดีๆ แป๊บน้าา ตอนนี้สมองตื้อไปหมดแล้ว 🧸' }]
       });
@@ -101,7 +105,7 @@ async function handleEvent(event) {
   if (userText === "คุยกับพี่หมี AI") {
     userStates[userId] = 'ON';
     console.log(`[State] ผู้ใช้ ${userId} เปลี่ยนสถานะเป็น ON`);
-    return client.replyMessage({
+    return await client.replyMessage({
       replyToken: event.replyToken,
       messages: [{
         type: 'text',
@@ -114,7 +118,7 @@ async function handleEvent(event) {
   if (userText === "บ๊ายบายพี่หมี") {
     userStates[userId] = 'OFF';
     console.log(`[State] ผู้ใช้ ${userId} เปลี่ยนสถานะเป็น OFF`);
-    return client.replyMessage({
+    return await client.replyMessage({
       replyToken: event.replyToken,
       messages: [{
         type: 'text',
@@ -126,25 +130,27 @@ async function handleEvent(event) {
   // --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
   if (userStates[userId] === 'ON') {
     try {
+      // แก้ไขปัญหาที่ 1: ปรับโครงสร้างพารามิเตอร์ config ให้ถูกต้องตามมาตรฐาน @google/genai
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
+        contents: userText,
         config: {
           systemInstruction: SYSTEM_PROMPT
-        },
-        contents: userText,
+        }
       });
 
       const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
 
-      return client.replyMessage({
+      return await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: aiReply }]
       });
     } catch (error) {
       console.error('Gemini API Error (แชท):', error);
-      return client.replyMessage({
+      // แก้ไขปัญหาที่ 1: เปลี่ยนคำตอบกลับเมื่อระบบขัดข้องตามความต้องการของคุณ
+      return await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: 'พี่หมีขอโทษน้าา สัญญาณหลุดไปแป๊บนึง รบกวนพิมพ์บอกพี่หมีอีกทีได้ไหมครับ 🧸' }]
+        messages: [{ type: 'text', text: 'ขออภัยครับ พี่หมีกำลังมึนงงเล็กน้อย พิมพ์มาใหม่อีกครั้งนะ 🧸' }]
       });
     }
   }
