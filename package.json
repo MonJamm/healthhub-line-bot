@@ -1,0 +1,17 @@
+{
+  "name": "phi-mhee-ai-line-webhook",
+  "version": "1.0.0",
+  "description": "LINE OA Webhook for Phi Mhee AI powered by Gemini API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^0.1.1",
+    "@line/bot-sdk": "^9.5.0",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
