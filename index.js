@@ -23,8 +23,10 @@ const client = new messagingApi.MessagingApiClient({
 });
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-// 3. รายการคำสั่งที่ต้องหยุดทำงานทันที (CRITICAL SYSTEM FILTER)
-// เพื่อปล่อยให้ Rich Menu หรือระบบอื่นของ LINE OA จัดการแทน
+// 3. Object สำหรับเก็บสถานะโหมดแชทของผู้ใช้ (แยกตาม userId ของ LINE)
+const userStates = {};
+
+// 4. รายการคำสั่งที่ต้องหยุดทำงานทันที (CRITICAL SYSTEM FILTER)
 const filterKeywords = [
   "โรคทางเพศสัมพันธ์", 
   "การป้องกันโรค", 
@@ -33,39 +35,51 @@ const filterKeywords = [
   "คำถามว้าวุ่น"
 ];
 
-// 4. ฟังก์ชันหลักสำหรับจัดการ Events จาก LINE
+// 5. System Prompt หลักสำหรับ "พี่หมี AI" ในโหมดเปิดการสนทนา
+const SYSTEM_PROMPT = `คุณคือ "พี่หมี AI" เจ้าหน้าที่สาธารณสุขสุดใจดี อ่อนโยน และเข้าใจวัยรุ่น ประจำ LINE OA โครงการวัยรุ่นวัยใส ของโรงพยาบาลส่งเสริมสุขภาพตำบล (รพ.สต.)
+
+สไตล์การพูดคุย (Tone of Voice):
+- ใช้ภาษาเป็นกันเอง อ่อนโยน ปลอบโยน ไม่ตัดสิน ไม่ดุดัน ไม่สั่งสอนแบบผู้ใหญ่
+- แทนตัวเองว่า "พี่หมี" และแทนผู้ใช้วัยรุ่นว่า "เธอ" หรือ "น้อง"
+- ใช้温馨อีโมจิบ้างตามความเหมาะสม (เช่น 🧸, 💖, 🍃, 🔋)
+- ย้ำเสมอว่า "ทุกอย่างที่คุยกับพี่หมีเป็นความลับนะ ไม่ต้องกังวลเลย"
+
+ขอบเขตความรู้และหน้าที่ (Scope of Work):
+1. ให้คำปรึกษาและข้อมูลที่ถูกต้องเกี่ยวกับ โรคติดต่อทางเพศสัมพันธ์และการป้องกัน (ถุงยางอนามัย), ภัยของสารเสพติด พร้อมวิธีปฏิเสธเพื่อน, ปัญหาสุขภาพจิต (ความเครียด, ดิ่ง, ซึมเศร้า) โดยเน้นการรับฟังและฮีลใจ
+2. ข้อมูลบริการของ รพ.สต. ในพื้นที่: แจกถุงยางอนามัยและยาเม็ดคุมกำเนิด "ฟรี" สำหรับวัยรุ่น เดินเข้ามาขอรับได้เลยที่ รพ.สต. ในวันจันทร์ - ศุกร์ เวลา 08.30 - 16.30 น. (เว้นวันหยุดราชการ)
+
+ข้อจำกัดสำคัญ (Guardrails):
+- ห้ามวินิจฉัยโรคเองเด็ดขาด ห้ามจ่ายยาหรือสั่งยา
+- หากน้องพิมพ์คำว่า "อยากตาย" "ทำร้ายตัวเอง" ให้แสดงความห่วงใยอย่างที่สุด และส่งข้อความนี้ปิดท้ายทันที: "พี่หมีอยู่ตรงนี้นะ แต่อยากให้อุ่นใจขึ้น ลองโทรคุยกับสายด่วนสุขภาพจิต 1323 (โทรฟรี 24 ชม.) หรือกดปุ่ม 'ปรึกษาเจ้าหน้าที่' เพื่อคุยกับพี่ ๆ อนามัยคนจริง ๆ ได้เลยนะ ทุกอย่างเป็นความลับแน่นอนครับ 🧸"`;
+
+// 6. ฟังก์ชันหลักสำหรับจัดการ Events จาก LINE
 async function handleEvent(event) {
-  // สนใจเฉพาะข้อความที่เป็น Text เท่านั้น
-  if (event.type !== 'message' || event.message.type !== 'text') {
+  // สนใจเฉพาะข้อความที่เป็น Text และมีข้อมูลผู้ใช้ (userId) เท่านั้น
+  if (event.type !== 'message' || event.message.type !== 'text' || !event.source.userId) {
     return null;
   }
 
+  const userId = event.source.userId;
   const userText = event.message.text.trim();
 
+  // ปรับสถานะเริ่มต้นหากผู้ใช้คนนี้ยังไม่เคยอยู่ในระบบ
+  if (!userStates[userId]) {
+    userStates[userId] = 'OFF';
+  }
+
   // --- CRITICAL SYSTEM FILTER ---
-  // ถ้าเจอคำในหมวดหมู่ที่กำหนด ให้หยุดการทำงาน (Return เงียบๆ เพื่อไปตอบ 200 OK)
+  // ถ้าเจอคำในหมวดหมู่ที่กำหนด ให้หยุดการทำงาน (Return เพื่อไปตอบ 200 OK)
   if (filterKeywords.some(keyword => userText.includes(keyword))) {
-    console.log(`[Filter] ตรวจพบคำสำคัญ "${userText}": หยุดการทำงานเพื่อให้ Rich Menu ทำงานแทน`);
+    console.log(`[Filter] ผู้ใช้ ${userId} พิมพ์ "${userText}": หยุดทำงานเพื่อให้ Rich Menu จัดการ`);
     return null;
   }
 
-  // --- โหมดเปิดการสนทนา ---
-  if (userText === "คุยกับพี่หมี AI") {
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{
-        type: 'text',
-        text: 'พี่หมีสแตนด์บายแล้วครับ! มีอะไรอยากระบายหรือเล่าให้พี่หมีฟัง พิมพ์มาได้เลยนะ พี่หมีพร้อมรับฟังเสมอ ทุกเรื่องที่คุยกันเป็นความลับแน่นอนครับ 🧸'
-      }]
-    });
-  }
-
-  // --- โหมดสุ่มคำคมฮีลใจด้วย Gemini ---
+  // --- โหมดสุ่มคำคมฮีลใจด้วย Gemini (ทำงานได้ตลอดเวลา โดยไม่ต้องสนใจสถานะ) ---
   if (userText === "คำคมฮีลใจ") {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: 'ขอคำคมฮีลใจ ให้พลังบวกสั้นๆ สำหรับวัยรุ่นที่กำลังเหนื่อยหรือท้อแท้ เอาแบบอบอุ่น ฟีลเพื่อนเตือนสติ ความยาวแค่ 1 ประโยคสั้นๆ เท่านั้น ไม่ต้องมีคำเกริ่นนำใดๆ ทั้งสิ้น และลงท้ายด้วยอีโมจิที่เข้ากัน',
+        contents: 'จงแต่งคำคมฮีลใจ ให้พลังบวก 1 ข้อความ ความยาวประมาณ 2-3 ประโยค เน้นความสดใส ร่าเริง อบอุ่น และใส่อีโมจิน่ารักๆ แบบจัดเต็ม',
       });
 
       const quote = response.text ? response.text.trim() : "เหนื่อยก็พักนะ พี่หมีเป็นกำลังใจให้เสมอครับ 🔋";
@@ -75,31 +89,83 @@ async function handleEvent(event) {
         messages: [{ type: 'text', text: quote }]
       });
     } catch (error) {
-      console.error('Gemini API Error:', error);
+      console.error('Gemini API Error (คำคม):', error);
       return client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: 'พี่หมีขอเวลาคิดแป๊บน้าา ตอนนี้สมองเบลอไปหมดแล้ว 🧸' }]
+        messages: [{ type: 'text', text: 'พี่หมีขอเวลาคิดคำคมดีๆ แป๊บน้าา ตอนนี้สมองตื้อไปหมดแล้ว 🧸' }]
       });
     }
   }
 
-  // --- คำสั่งอื่นๆ นอกเหนือจากเงื่อนไข (หยุดทำงานตามเงื่อนไข CRITICAL) ---
-  console.log(`[Filter] ข้อความ "${userText}" ไม่ตรงกับเงื่อนไขที่กำหนด: หยุดทำงานเพื่อให้ระบบหลักทำงาน`);
+  // --- เงื่อนไขสลับโหมดเปิดการสนทนา [CHAT_MODE = ON] ---
+  if (userText === "คุยกับพี่หมี AI") {
+    userStates[userId] = 'ON';
+    console.log(`[State] ผู้ใช้ ${userId} เปลี่ยนสถานะเป็น ON`);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'text',
+        text: 'พี่หมีสแตนด์บายแล้วครับ! มีอะไรอยากระบายหรือเล่าให้พี่หมีฟัง พิมพ์มาได้เลยนะ พี่หมีพร้อมรับฟังเสมอ ทุกเรื่องที่คุยกันเป็นความลับแน่นอนครับ 🧸'
+      }]
+    });
+  }
+
+  // --- เงื่อนไขสลับโหมดปิดการสนทนา [CHAT_MODE = OFF] ---
+  if (userText === "บ๊ายบายพี่หมี") {
+    userStates[userId] = 'OFF';
+    console.log(`[State] ผู้ใช้ ${userId} เปลี่ยนสถานะเป็น OFF`);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'text',
+        text: 'รับทราบครับ! ไว้เหนื่อยเมื่อไหร่แวะมาคุยกันใหม่นะ พี่หมีส่งต่อให้พี่ๆ เจ้าหน้าที่ดูแลต่อแล้วครับ บ๊ายบายครับ 🔋'
+      }]
+    });
+  }
+
+  // --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
+  if (userStates[userId] === 'ON') {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        config: {
+          systemInstruction: SYSTEM_PROMPT
+        },
+        contents: userText,
+      });
+
+      const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
+
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: aiReply }]
+      });
+    } catch (error) {
+      console.error('Gemini API Error (แชท):', error);
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: 'พี่หมีขอโทษน้าา สัญญาณหลุดไปแป๊บนึง รบกวนพิมพ์บอกพี่หมีอีกทีได้ไหมครับ 🧸' }]
+      });
+    }
+  }
+
+  // --- คำสั่งอื่นๆ ขณะที่สถานะเป็น OFF (หยุดทำงานเพื่อให้ระบบหลักทำงาน) ---
+  console.log(`[Filter] ผู้ใช้ ${userId} ส่งข้อความ "${userText}" นอกเงื่อนไขแชท: หยุดทำงานเพื่อให้ระบบหลักทำงาน`);
   return null;
 }
 
-// 5. Routing สำหรับ Webhook
+// 7. Routing สำหรับ Webhook
 app.post('/webhook', middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
-    .then(() => res.status(200).send('OK')) // ส่ง 200 OK เสมอเพื่อบอก LINE Platform ว่าได้รับข้อมูลแล้ว
+    .then(() => res.status(200).send('OK'))
     .catch((err) => {
       console.error('Webhook Error:', err);
       res.status(500).end();
     });
 });
 
-// 6. Start Server
+// 8. Start Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`พี่หมี AI Webhook กำลังรันที่พอร์ต ${PORT}`);
