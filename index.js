@@ -77,7 +77,6 @@ async function handleEvent(event) {
   // --- โหมดสุ่มคำคมฮีลใจด้วย Gemini (ทำงานได้ตลอดเวลา โดยไม่ต้องสนใจสถานะ) ---
   if (userText === "คำคมฮีลใจ") {
     try {
-      // จุดแก้ไข 1: เปลี่ยนมาใช้โมเดล gemini-1.5-flash เพื่อโควตา Free Tier ที่เสถียรกว่า
       const response = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: 'จงแต่งคำคมฮีลใจ ให้พลังบวก 1 ข้อความ ความยาวสั้นๆ แค่ 2-3 ประโยค เน้นความสดใส ร่าเริง และใส่อีโมจิเยอะๆ เงื่อนไขสำคัญที่สุด: ห้ามมีคำเกริ่นนำ คำตอบรับ หรือคำอธิบายใดๆ ทั้งสิ้น ให้ตอบกลับเฉพาะเนื้อหาของคำคมเพียวๆ เท่านั้น',
@@ -148,7 +147,6 @@ async function handleEvent(event) {
   // --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
   if (userStates[userId] === 'ON') {
     try {
-      // จุดแก้ไข 2: เปลี่ยนมาใช้โมเดล gemini-1.5-flash ในระบบแชทหลักด้วยเช่นกัน
       const response = await ai.models.generateContent({
         model: 'gemini-1.5-flash',
         contents: userText,
@@ -159,15 +157,37 @@ async function handleEvent(event) {
 
       const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
 
+      // เพิ่มเติม: หากคุยสำเร็จสำเร็จ ให้รีเซ็ตตัวนับคะแนนความผิดพลาดของคนนี้กลับเป็น 0
+      if (userStates[userId + '_error_count']) {
+        userStates[userId + '_error_count'] = 0;
+      }
+
       return await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: aiReply }]
       });
     } catch (error) {
       console.error('Gemini API Error (แชท):', error);
+
+      // เพิ่มเติม: ระบบตัวนับจำนวนครั้งที่เจอ Error แยกตามรายบุคคล
+      if (!userStates[userId + '_error_count']) {
+        userStates[userId + '_error_count'] = 1;
+      } else {
+        userStates[userId + '_error_count'] += 1;
+      }
+
+      // ตั้งค่าข้อความเริ่มต้นเมื่อพังครั้งแรก
+      let errorMessage = 'ขออภัยครับ พี่หมีกำลังมึนงงเล็กน้อย พิมพ์มาใหม้อีกครั้งนะ 🧸';
+
+      // เพิ่มเติมเงื่อนไข: หากพังติดต่อกันตั้งแต่ 2 ครั้งขึ้นไป ให้สลับเป็นข้อความแนะนำเจ้าหน้าที่ รพ.สต.
+      if (userStates[userId + '_error_count'] >= 2) {
+        errorMessage = 'พี่หมีว่าลองเปลี่ยนเป็นคุยกับเจ้าหน้าที่โดยตรงเลยดีไหมครับ พี่ๆเจ้าหน้าที่พร้อมให้คำปรึกษาเสมอน้าา แล้วทุกอย่างจะเป็นความลับแน่นอน';
+        userStates[userId + '_error_count'] = 0; // รีเซ็ตตัวนับเพื่อเริ่มรอบใหม่
+      }
+
       return await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: 'ขออภัยครับ พี่หมีกำลังมึนงงเล็กน้อย พิมพ์มาใหม้อีกครั้งนะ 🧸' }]
+        messages: [{ type: 'text', text: errorMessage }]
       });
     }
   }
