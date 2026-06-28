@@ -146,53 +146,53 @@ async function handleEvent(event) {
     });
   }
 
-  // --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
-  if (userStates[userId] === 'ON') {
-    try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
-        contents: userText,
-        config: {
-          systemInstruction: SYSTEM_PROMPT
-        }
-      });
-
-      const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
-
-      // หากคุยสำเร็จ ให้รีเซ็ตตัวนับคะแนนความผิดพลาดของคนนี้กลับเป็น 0
-      if (userStates[userId + '_error_count']) {
-        userStates[userId + '_error_count'] = 0;
+// --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
+if (userStates[userId] === 'ON') {
+  try {
+    // ปรับโครงสร้างการส่งหา SDK @google/genai ให้ถูกต้อง
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: userText, // ส่งข้อความที่ผู้ใช้พิมพ์เข้ามา
+      config: {
+        systemInstruction: SYSTEM_PROMPT // เอา System Prompt มาใส่ตรงนี้
       }
+    });
 
-      return await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: aiReply }]
-      });
-    } catch (error) {
-      console.error('Gemini API Error (แชท):', error);
+    // ดึงข้อความที่ AI ตอบกลับมา
+    const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
 
-      // ระบบตัวนับจำนวนครั้งที่เจอ Error แยกตามรายบุคคล
-      if (!userStates[userId + '_error_count']) {
-        userStates[userId + '_error_count'] = 1;
-      } else {
-        userStates[userId + '_error_count'] += 1;
-      }
-
-      // ตั้งค่าข้อความเริ่มต้นเมื่อพังครั้งแรก
-      let errorMessage = 'ขออภัยครับ พี่หมีกำลังมึนงงเล็กน้อย พิมพ์มาใหม้อีกครั้งนะ 🧸';
-
-      // หากพังติดต่อกันตั้งแต่ 2 ครั้งขึ้นไป ให้สลับเป็นข้อความแนะนำเจ้าหน้าที่ รพ.สต.
-      if (userStates[userId + '_error_count'] >= 2) {
-        errorMessage = 'พี่หมีว่าลองเปลี่ยนเป็นคุยกับเจ้าหน้าที่โดยตรงเลยดีไหมครับ พี่ๆเจ้าหน้าที่พร้อมให้คำปรึกษาเสมอน้าา แล้วทุกอย่างจะเป็นความลับแน่นอน';
-        userStates[userId + '_error_count'] = 0; // รีเซ็ตตัวนับเพื่อเริ่มรอบใหม่
-      }
-
-      return await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: errorMessage }]
-      });
+    // หากคุยสำเร็จ ให้รีเซ็ตตัวนับคะแนนความผิดพลาดของคนนี้กลับเป็น 0
+    if (userStates[userId + '_error_count']) {
+      userStates[userId + '_error_count'] = 0;
     }
+
+    return await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: aiReply }]
+    });
+
+  } catch (error) {
+    console.error('Gemini API Error (แชท):', error);
+
+    if (!userStates[userId + '_error_count']) {
+      userStates[userId + '_error_count'] = 1;
+    } else {
+      userStates[userId + '_error_count'] += 1;
+    }
+
+    let errorMessage = 'ขออภัยครับ พี่หมีกำลังมึนงงเล็กน้อย พิมพ์มาใหม้อีกครั้งนะ 🧸';
+
+    if (userStates[userId + '_error_count'] >= 2) {
+      errorMessage = 'พี่หมีว่าลองเปลี่ยนเป็นคุยกับเจ้าหน้าที่โดยตรงเลยดีไหมครับ พี่ๆเจ้าหน้าที่พร้อมให้คำปรึกษาเสมอน้าา แล้วทุกอย่างจะเป็นความลับแน่นอน';
+      userStates[userId + '_error_count'] = 0; 
+    }
+
+    return await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: errorMessage }]
+    });
   }
+}
 
   // --- คำสั่งอื่นๆ ขณะที่สถานะเป็น OFF (หยุดทำงานเพื่อให้ระบบหลักทำงาน) ---
   console.log(`[Filter] ผู้ใช้ ${userId} ส่งข้อความ "${userText}" นอกเงื่อนไขแชท: หยุดทำงานเพื่อให้ระบบหลักทำงาน`);
