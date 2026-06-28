@@ -149,22 +149,20 @@ async function handleEvent(event) {
 // --- กรณีที่อยู่ในโหมดสนทนา [CHAT_MODE === ON] และไม่ใช่คำสั่งเปิด/ปิด/คำคม ---
 if (userStates[userId] === 'ON') {
   try {
-    // ปรับโครงสร้างการส่งหา SDK @google/genai ให้ถูกต้อง
+    // ปรับโครงสร้าง parameter ให้ตรงตามข้อกำหนดของ @google/genai ล่าสุด
     const response = await ai.models.generateContent({
       model: 'gemini-1.5-flash',
-      contents: userText, // ส่งข้อความที่ผู้ใช้พิมพ์เข้ามา
+      contents: userText,
       config: {
-        systemInstruction: SYSTEM_PROMPT // เอา System Prompt มาใส่ตรงนี้
+        systemInstruction: SYSTEM_PROMPT  // อยู่ข้างใน config ออบเจกต์ตัวเดียวตรงๆ
       }
     });
 
-    // ดึงข้อความที่ AI ตอบกลับมา
+    // ดึงค่าข้อความที่ตอบกลับ (ใน SDK ใหม่แนะนำให้ตรวจสอบ .text)
     const aiReply = response.text ? response.text.trim() : "พี่หมีกำลังฟังอยู่นะครับ เล่าต่อได้เลยนะ 🧸";
 
-    // หากคุยสำเร็จ ให้รีเซ็ตตัวนับคะแนนความผิดพลาดของคนนี้กลับเป็น 0
-    if (userStates[userId + '_error_count']) {
-      userStates[userId + '_error_count'] = 0;
-    }
+    // รีเซ็ตตัวนับคะแนนความผิดพลาดเมื่อทำงานสำเร็จ
+    userStates[userId + '_error_count'] = 0;
 
     return await client.replyMessage({
       replyToken: event.replyToken,
@@ -174,6 +172,7 @@ if (userStates[userId] === 'ON') {
   } catch (error) {
     console.error('Gemini API Error (แชท):', error);
 
+    // ตัวนับรอบเออเรอร์ทำงาน
     if (!userStates[userId + '_error_count']) {
       userStates[userId + '_error_count'] = 1;
     } else {
