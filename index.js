@@ -151,7 +151,7 @@ if (userStates[userId] === 'ON') {
   try {
     // ปรับโครงสร้าง parameter ให้ตรงตามข้อกำหนดของ @google/genai ล่าสุด
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       contents: userText,
       config: {
         systemInstruction: SYSTEM_PROMPT  // อยู่ข้างใน config ออบเจกต์ตัวเดียวตรงๆ
